@@ -175,7 +175,7 @@ with tab1:
 
 # === TAB 2: ML RISK ANALYTICS ===
 with tab2:
-    st.subheader("🤖 Deep ML Risk Analysis & Top Predictions")
+    st.subheader("🤖 Deep ML Risk Analysis")
     
     col_c1, col_c2, col_c3 = st.columns(3)
     
@@ -196,7 +196,7 @@ with tab2:
         top_10["zone_id_str"] = "Zone " + top_10["zone_id"].astype(str)
         fig2 = px.bar(
             top_10, x="zone_id_str", y="impact_score", color="severity",
-            title="Top 10 Critical Zones",
+            title="Top 10 Critical Enforcement Zones",
             color_discrete_map={"CRITICAL": "red", "HIGH": "orange", "MEDIUM": "yellow", "LOW": "green"},
             template="plotly_dark"
         )
@@ -224,7 +224,7 @@ with tab3:
     dispatch_df = simulated_df.copy()
     dispatch_df["Recommended_Action"] = dispatch_df["severity"].apply(format_urgency)
     
-    st.markdown("##### Real-Time Dispatch Requirements")
+    st.markdown("##### 🚨 Critical Zones Requiring Immediate Action")
     action_summary = dispatch_df['Recommended_Action'].value_counts().reset_index()
     action_summary.columns = ['Action', 'Count']
     
@@ -237,7 +237,19 @@ with tab3:
     )
     st.plotly_chart(fig_dispatch, use_container_width=True)
     
-    st.markdown("##### Priority Action Table")
+    st.markdown("---")
+    c_btn1, c_btn2 = st.columns([0.8, 0.2])
+    with c_btn1:
+        st.markdown("##### Priority Action Table (Enforcement Dispatch)")
+    with c_btn2:
+        # Download Report Feature added back
+        csv = dispatch_df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Download Dispatch Report",
+            data=csv,
+            file_name='gridlock_critical_dispatch_report.csv',
+            mime='text/csv',
+        )
     
     c1, c2 = st.columns(2)
     with c1:
