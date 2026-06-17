@@ -114,6 +114,11 @@ st.sidebar.markdown("---")
 st.sidebar.header("⏱️ Predictive AI Engine")
 future_mins = st.sidebar.slider("Fast-Forward Time (Mins)", 0, 60, 0, step=15)
 
+# Initialize simulated_df based on the slider
+impact_multiplier = 1.0 + (future_mins * 0.05)
+simulated_df = impact_df.copy()
+simulated_df["impact_score"] = simulated_df["impact_score"] * impact_multiplier
+
 if future_mins > 0:
     alert_msg = f"⚠️ PREDICTIVE ALERT (T+{future_mins} mins): Spillover expected in High Risk Zones. Pre-emptive dispatch engaged."
     st.markdown(f"<div class='alert-banner'>{alert_msg}</div>", unsafe_allow_html=True)
