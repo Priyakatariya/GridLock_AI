@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+.env
+venv/
+
+# Large data files (CSV dataset is too big for GitHub)
+*.csv
+!Backend/outputs/.gitkeep
+
+# Large model artifacts
+Backend/outputs/*.joblib
+
+# Keep the JSON outputs (small)
+!Backend/outputs/model_metrics.json
+!Backend/outputs/pipeline_summary.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

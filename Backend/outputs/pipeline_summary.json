@@ -1,0 +1,12 @@
+{
+  "total_raw_records": 298277,
+  "total_zones": 1533,
+  "critical_zones": 77,
+  "high_zones": 230,
+  "medium_zones": 460,
+  "low_zones": 766,
+  "model_auc": 0.9995306486435745,
+  "model_f1": 0.9905660377358491,
+  "features_used": 23,
+  "pipeline_runtime_seconds": 10.46
+}
