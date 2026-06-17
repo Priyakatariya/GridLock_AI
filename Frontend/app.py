@@ -154,8 +154,9 @@ with tab1:
     center_lat = impact_df["center_lat"].mean()
     center_lon = impact_df["center_lng"].mean()
 
-    tile_style = "CartoDB dark_matter" if theme_toggle else "CartoDB positron"
-    m = folium.Map(location=[center_lat, center_lon], zoom_start=12, tiles=tile_style)
+    # User explicitly requested NO dark effect on the map itself.
+    # We use the default OpenStreetMap tiles which are bright and colorful.
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=12)
 
     # 1. Heatmap (Native & Fast)
     if show_heatmap:
