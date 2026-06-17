@@ -3,7 +3,6 @@ import pandas as pd
 import folium
 from streamlit_folium import st_folium
 from folium.plugins import HeatMap
-from sklearn.cluster import DBSCAN
 import plotly.express as px
 import os
 import json
@@ -19,7 +18,6 @@ st.set_page_config(page_title="GridLock AI", layout="wide", page_icon="🚦")
 theme_toggle = st.sidebar.toggle("🌙 Enable Dark Mode", value=True)
 
 if theme_toggle:
-    # Premium Dark Mode CSS (NOT pure black, dark slate/navy instead)
     st.markdown("""
     <style>
         .stApp { background-color: #1A1F2B; color: #E0E6ED; }
@@ -52,7 +50,6 @@ if theme_toggle:
     </style>
     """, unsafe_allow_html=True)
 else:
-    # Light Mode CSS
     st.markdown("""
     <style>
         .stApp { background-color: #F8F9FA; color: #2C3E50; }
@@ -88,7 +85,7 @@ else:
 st.title("🚦 GridLock AI — Urban Congestion Command Center")
 
 # ==========================================
-# LOAD DATA
+# LOAD DATA (Optimized)
 # ==========================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUTS_DIR = os.path.join(BASE_DIR, "..", "Backend", "outputs")
@@ -115,11 +112,10 @@ heat_radius = st.sidebar.slider("Heatmap Intensity", 5, 25, 12)
 
 st.sidebar.markdown("---")
 st.sidebar.header("⏱️ Predictive AI Engine")
-st.sidebar.markdown("Simulate future congestion spillover.")
 future_mins = st.sidebar.slider("Fast-Forward Time (Mins)", 0, 60, 0, step=15)
 
 if future_mins > 0:
-    alert_msg = f"⚠️ PREDICTIVE ALERT (T+{future_mins} mins): Spillover expected in High Risk Zones. Automated pre-emptive dispatch engaged."
+    alert_msg = f"⚠️ PREDICTIVE ALERT (T+{future_mins} mins): Spillover expected in High Risk Zones. Pre-emptive dispatch engaged."
     st.markdown(f"<div class='alert-banner'>{alert_msg}</div>", unsafe_allow_html=True)
 
 # ==========================================
@@ -151,43 +147,39 @@ st.markdown("""
 # ==========================================
 tab1, tab2, tab3 = st.tabs(["🗺️ Live Congestion Map", "📊 ML Risk Analytics", "🚓 Priority Dispatch"])
 
-# === TAB 1: EXACT MAP (PERFECT LIGHT/DARK HANDLING) ===
+# === TAB 1: OPTIMIZED FOLIUM MAP (SUPER FAST) ===
 with tab1:
     st.subheader("Live City Congestion Map")
     
-    center_lat = df["latitude"].mean()
-    center_lon = df["longitude"].mean()
+    center_lat = impact_df["center_lat"].mean()
+    center_lon = impact_df["center_lng"].mean()
 
-    # Map switches tile style cleanly: 
-    # "CartoDB dark_matter" is perfect for Dark Mode
-    # "CartoDB positron" is a clean light grey map perfect for Light Mode
     tile_style = "CartoDB dark_matter" if theme_toggle else "CartoDB positron"
     m = folium.Map(location=[center_lat, center_lon], zoom_start=12, tiles=tile_style)
 
+    # 1. Heatmap (Native & Fast)
     if show_heatmap:
-        heat_data = df[["latitude", "longitude"]].values.tolist()
+        # Downsample heatmap slightly for instant rendering
+        heat_sample = df.sample(min(15000, len(df))) if len(df) > 15000 else df
+        heat_data = heat_sample[["latitude", "longitude"]].values.tolist()
         HeatMap(heat_data, radius=heat_radius).add_to(m)
 
+    # 2. Clusters (Loaded instantly from pre-calculated ML Output, NO LIVE DBSCAN)
     if show_clusters:
-        coords = df[["latitude", "longitude"]].values
-        clustering = DBSCAN(eps=0.003, min_samples=5).fit(coords)
-        df["cluster"] = clustering.labels_
+        for _, row in impact_df.iterrows():
+            if row['severity'] in ["CRITICAL", "HIGH"]:
+                folium.Circle(
+                    location=[row["center_lat"], row["center_lng"]],
+                    radius=200 + (future_mins * 10), 
+                    color="red" if row['severity'] == "CRITICAL" else "orange",
+                    fill=True,
+                    fill_opacity=0.2,
+                    popup=f"🔥 Zone {row['zone_id']} | Impact: {row['impact_score']:.2f}"
+                ).add_to(m)
 
-        unique_clusters = df["cluster"].unique()
-        for cluster_id in unique_clusters:
-            if cluster_id == -1: continue
-            cluster_points = df[df["cluster"] == cluster_id]
-            folium.Circle(
-                location=[cluster_points["latitude"].mean(), cluster_points["longitude"].mean()],
-                radius=200 + (future_mins * 10), 
-                color="red",
-                fill=True,
-                fill_opacity=0.2,
-                popup=f"🔥 Hotspot Cluster {cluster_id}"
-            ).add_to(m)
-
-    sample_df = df.head(1000)
-    for _, row in sample_df.iterrows():
+    # 3. Individual Violation Markers (Limited to 200 for instant loading)
+    sample_dots = df.sample(min(200, len(df)))
+    for _, row in sample_dots.iterrows():
         violation = str(row.get("violation_list", ""))
         if "WRONG PARKING" in violation: color = "red"
         elif "NO PARKING" in violation: color = "orange"
@@ -204,47 +196,91 @@ with tab1:
 
     st_folium(m, width=1200, height=600)
 
-# === TAB 2: ML RISK ANALYTICS (TOP 10 BROUGHT BACK) ===
+# === TAB 2: ML RISK ANALYTICS ===
 with tab2:
     st.subheader("🤖 Deep ML Risk Analysis & Top Predictions")
     
-    col_chart1, col_chart2 = st.columns(2)
+    # 3 Charts Layout
+    col_c1, col_c2, col_c3 = st.columns(3)
     
-    with col_chart1:
-        fig1 = px.scatter(
+    with col_c1:
+        # Restored Donut Chart (Circle Visualization)
+        severity_counts = impact_df['severity'].value_counts().reset_index()
+        severity_counts.columns = ['severity', 'count']
+        fig1 = px.pie(
+            severity_counts, values='count', names='severity', hole=0.4,
+            title="Severity Distribution",
+            color='severity',
+            color_discrete_map={"CRITICAL": "red", "HIGH": "orange", "MEDIUM": "yellow", "LOW": "green"},
+            template="plotly_dark" if theme_toggle else "plotly_white"
+        )
+        st.plotly_chart(fig1, use_container_width=True)
+
+    with col_c2:
+        # Top 10 Predictions
+        top_10 = impact_df.sort_values(by="impact_score", ascending=False).head(10)
+        top_10["zone_id_str"] = "Zone " + top_10["zone_id"].astype(str)
+        fig2 = px.bar(
+            top_10, x="zone_id_str", y="impact_score", color="severity",
+            title="Top 10 Critical Zones",
+            color_discrete_map={"CRITICAL": "red", "HIGH": "orange", "MEDIUM": "yellow", "LOW": "green"},
+            template="plotly_dark" if theme_toggle else "plotly_white"
+        )
+        st.plotly_chart(fig2, use_container_width=True)
+
+    with col_c3:
+        # Bubble Chart
+        fig3 = px.scatter(
             impact_df, x="violation_count", y="impact_score", 
             color="severity", size="risk_score", hover_data=["zone_id"],
             title="Impact vs Violations",
             color_discrete_map={"CRITICAL": "red", "HIGH": "orange", "MEDIUM": "yellow", "LOW": "green"},
             template="plotly_dark" if theme_toggle else "plotly_white"
         )
-        st.plotly_chart(fig1, use_container_width=True)
-        
-    with col_chart2:
-        # TOP 10 PREDICTIONS (As requested by user)
-        top_10 = impact_df.sort_values(by="impact_score", ascending=False).head(10)
-        top_10["zone_id_str"] = "Zone " + top_10["zone_id"].astype(str)
-        fig2 = px.bar(
-            top_10, x="zone_id_str", y="impact_score", color="severity",
-            title="Top 10 ML Predicted Critical Zones",
-            color_discrete_map={"CRITICAL": "red", "HIGH": "orange", "MEDIUM": "yellow", "LOW": "green"},
-            template="plotly_dark" if theme_toggle else "plotly_white"
-        )
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig3, use_container_width=True)
 
 # === TAB 3: DISPATCH CONSOLE ===
 with tab3:
     st.subheader("🚓 Automated Action Output")
     
-    st.markdown("##### Priority Action Table")
-    dispatch_df = hotspot_df.copy()
-    
-    def format_urgency_detailed(val):
+    def format_urgency(val):
         if val == "CRITICAL": return "🚨 Dispatch Tow Truck ASAP"
         if val == "HIGH": return "🚓 Send Patrol Unit"
         return "🟢 Issue E-Challan"
+
+    dispatch_df = hotspot_df.copy()
+    dispatch_df["Recommended_Action"] = dispatch_df["severity"].apply(format_urgency)
+    
+    # Restored Dispatch Bar Chart
+    st.markdown("##### Real-Time Dispatch Requirements")
+    action_summary = dispatch_df['Recommended_Action'].value_counts().reset_index()
+    action_summary.columns = ['Action', 'Count']
+    
+    fig_dispatch = px.bar(
+        action_summary, x="Count", y="Action", orientation='h',
+        title="Units Needed For Immediate Dispatch",
+        color="Action",
+        color_discrete_map={"🚨 Dispatch Tow Truck ASAP": "red", "🚓 Send Patrol Unit": "orange", "🟢 Issue E-Challan": "green"},
+        template="plotly_dark" if theme_toggle else "plotly_white"
+    )
+    st.plotly_chart(fig_dispatch, use_container_width=True)
+    
+    st.markdown("##### Priority Action Table")
+    
+    c1, c2 = st.columns(2)
+    with c1:
+        severity_filter = st.multiselect("Filter by Severity:", ["CRITICAL", "HIGH", "MEDIUM", "LOW"], default=["CRITICAL", "HIGH"])
+    with c2:
+        sort_by = st.selectbox("Sort Priority By:", ["Highest Impact", "Most Violations"])
         
-    dispatch_df["Recommended_Action"] = dispatch_df["severity"].apply(format_urgency_detailed)
+    if severity_filter:
+        dispatch_df = dispatch_df[dispatch_df["severity"].isin(severity_filter)]
+        
+    if sort_by == "Highest Impact":
+        dispatch_df = dispatch_df.sort_values(by="impact_score", ascending=False)
+    else:
+        dispatch_df = dispatch_df.sort_values(by="violation_count", ascending=False)
+    
     display_cols = ["zone_id", "severity", "risk_score", "impact_score", "Recommended_Action"]
     
     dispatch_df["risk_score"] = dispatch_df["risk_score"].round(4)
@@ -252,13 +288,12 @@ with tab3:
     
     def highlight_critical(row):
         if row.severity == 'CRITICAL':
-            # Dark mode uses subtle red background, Light mode uses brighter red background
             bg_color = "rgba(255, 0, 0, 0.2)" if theme_toggle else "rgba(255, 0, 0, 0.1)"
             return [f'background-color: {bg_color}'] * len(row)
         return [''] * len(row)
         
     st.dataframe(
-        dispatch_df[display_cols].sort_values(by="impact_score", ascending=False).style.apply(highlight_critical, axis=1),
+        dispatch_df[display_cols].style.apply(highlight_critical, axis=1),
         use_container_width=True,
         hide_index=True,
         height=500
