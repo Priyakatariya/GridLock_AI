@@ -158,21 +158,48 @@ with tab1:
                 tooltip=f"<b style='color:red;'>Major Bottleneck: Zone {row['zone_id']}</b><br>Simulated Impact: {row['impact_score']:.2f}"
             ).add_to(m)
 
-    # 3. Individual Violation Markers (Limited to 100 for instant loading)
-    sample_dots = df.sample(min(100, len(df)))
+    # 3. Individual Violation Markers (Detailed E-Challan View)
+    sample_dots = df.sample(min(150, len(df)))
+    # Fetch risk and impact score from the zone data
+    sample_dots = sample_dots.merge(simulated_df[['zone_id', 'risk_score', 'impact_score']], on='zone_id', how='left')
+    
     for _, row in sample_dots.iterrows():
         violation = str(row.get("violation_list", ""))
-        if "WRONG PARKING" in violation: color = "red"
-        elif "NO PARKING" in violation: color = "orange"
-        else: color = "green"
+        veh_num = str(row.get("vehicle_number", "UNKNOWN"))
+        
+        if "WRONG PARKING" in violation: 
+            color = "red"
+            action = "🚨 TOW TRUCK REQUIRED"
+        elif "NO PARKING" in violation: 
+            color = "orange"
+            action = "🟡 ISSUE E-CHALLAN"
+        else: 
+            color = "green"
+            action = "🟢 STANDARD FINE"
+
+        r_score = row.get('risk_score', 0)
+        i_score = row.get('impact_score', 0)
+        if pd.isna(r_score): r_score = 0
+        if pd.isna(i_score): i_score = 0
+
+        tooltip_html = f"""
+        <div style='font-family: sans-serif;'>
+            <b>🚗 Vehicle:</b> {veh_num}<br>
+            <b>⚠️ Violation:</b> {violation}<br>
+            <b>📈 Zone Risk Score:</b> {r_score:.4f}<br>
+            <b>💥 Zone Impact Score:</b> {i_score:.4f}<br>
+            <hr style='margin: 5px 0;'>
+            <b>⚡ Recommended:</b> {action}
+        </div>
+        """
 
         folium.CircleMarker(
             location=[row["latitude"], row["longitude"]],
-            radius=4,
+            radius=5,
             color=color,
             fill=True,
-            fill_opacity=0.8,
-            tooltip=f"Violation: {violation}"
+            fill_opacity=0.9,
+            tooltip=tooltip_html
         ).add_to(m)
 
     # Force re-render when controls change, and disable returned_objects for maximum speed
@@ -183,9 +210,10 @@ with tab1:
 with tab2:
     st.subheader("🤖 Deep ML Risk Analysis")
     
-    col_c1, col_c2, col_c3 = st.columns(3)
+    # ---------------- ROW 1 ----------------
+    row1_c1, row1_c2 = st.columns(2)
     
-    with col_c1:
+    with row1_c1:
         severity_counts = simulated_df['severity'].value_counts().reset_index()
         severity_counts.columns = ['severity', 'count']
         fig1 = px.pie(
@@ -197,7 +225,35 @@ with tab2:
         )
         st.plotly_chart(fig1, use_container_width=True)
 
-    with col_c2:
+    with row1_c2:
+        # User requested 'Reason' Pie Chart
+        # We extract violation reasons from the raw data
+        def clean_violation(v):
+            v_str = str(v).upper()
+            if "WRONG PARKING" in v_str: return "Wrong Parking"
+            if "NO PARKING" in v_str: return "No Parking Zone"
+            if "FOOTPATH" in v_str: return "Footpath Parking"
+            if "DOUBLE" in v_str: return "Double Parking"
+            return "Other Violations"
+            
+        df_reasons = df.copy()
+        df_reasons['Reason'] = df_reasons['violation_list'].apply(clean_violation)
+        reason_counts = df_reasons['Reason'].value_counts().reset_index()
+        reason_counts.columns = ['Reason', 'count']
+        
+        fig_reason = px.pie(
+            reason_counts, values='count', names='Reason', hole=0.4,
+            title="Primary Reasons for Congestion",
+            color='Reason',
+            color_discrete_sequence=px.colors.sequential.Plasma,
+            template="plotly_dark"
+        )
+        st.plotly_chart(fig_reason, use_container_width=True)
+
+    # ---------------- ROW 2 ----------------
+    row2_c1, row2_c2 = st.columns(2)
+    
+    with row2_c1:
         top_10 = simulated_df.sort_values(by="impact_score", ascending=False).head(10)
         top_10["zone_id_str"] = "Zone " + top_10["zone_id"].astype(str)
         fig2 = px.bar(
@@ -208,11 +264,11 @@ with tab2:
         )
         st.plotly_chart(fig2, use_container_width=True)
 
-    with col_c3:
+    with row2_c2:
         fig3 = px.scatter(
             simulated_df, x="violation_count", y="impact_score", 
             color="severity", size="risk_score", hover_data=["zone_id"],
-            title="Impact vs Violations",
+            title="Impact vs Total Violations",
             color_discrete_map={"CRITICAL": "red", "HIGH": "orange", "MEDIUM": "yellow", "LOW": "green"},
             template="plotly_dark"
         )
