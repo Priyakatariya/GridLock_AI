@@ -171,11 +171,14 @@ with tab1:
 
     m = folium.Map(location=[center_lat, center_lon], zoom_start=12)
 
+    # 1. Heatmap (Optimized for Instant Load)
     if show_heatmap:
-        heat_sample = df.sample(min(15000, len(df))) if len(df) > 15000 else df
+        # 15000 points is too large for Folium HTML payload, causing slow load. 2000 is instant and looks identical.
+        heat_sample = df.sample(min(2000, len(df))) if len(df) > 2000 else df
         heat_data = heat_sample[["latitude", "longitude"]].values.tolist()
         HeatMap(heat_data, radius=heat_radius, blur=heat_radius-2).add_to(m)
 
+    # 2. Clusters (Fast)
     if show_clusters:
         for _, row in simulated_df.iterrows():
             if row['severity'] in ["CRITICAL", "HIGH"]:
@@ -188,7 +191,8 @@ with tab1:
                     tooltip=f"<b style='color:red;'>Zone {row['zone_id']}</b><br>Simulated Impact: {row['impact_score']:.2f}"
                 ).add_to(m)
 
-    sample_dots = df.sample(min(200, len(df)))
+    # 3. Individual Violation Markers (Limited to 100 for instant loading)
+    sample_dots = df.sample(min(100, len(df)))
     for _, row in sample_dots.iterrows():
         violation = str(row.get("violation_list", ""))
         if "WRONG PARKING" in violation: color = "red"
@@ -204,9 +208,9 @@ with tab1:
             tooltip=f"Violation: {violation}"
         ).add_to(m)
 
-    # Force re-render when controls change
+    # Force re-render when controls change, and disable returned_objects for maximum speed
     map_key = f"map_{heat_radius}_{future_mins}_{show_heatmap}_{show_clusters}"
-    st_folium(m, width=1200, height=600, key=map_key)
+    st_folium(m, width=1200, height=600, key=map_key, returned_objects=[])
 
 # === TAB 2: ML RISK ANALYTICS ===
 with tab2:
