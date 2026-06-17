@@ -3,515 +3,269 @@ import pandas as pd
 import folium
 from streamlit_folium import st_folium
 from folium.plugins import HeatMap
-from sklearn.cluster import DBSCAN
-import os
 import plotly.express as px
+import os
+import json
 
 # ==========================================
 # PAGE CONFIG
 # ==========================================
-st.set_page_config(page_title="GridLock AI", layout="wide", page_icon="🚨")
-st.title("🚦 GridLock AI — Urban Congestion Command Center")
-st.markdown("""
-### AI-Powered Urban Congestion Prevention System
-
-Predicting illegal parking spillover,
-prioritizing enforcement actions,
-and preventing city-wide traffic congestion before it happens.
-
----
-""")
+st.set_page_config(page_title="GridLock AI", layout="wide", page_icon="🚦")
 
 # ==========================================
-# LOAD DATA (From Person 1/2 outputs)
+# CUSTOM COMPONENT CSS
+# ==========================================
+# We no longer inject .stApp background colors here to avoid flashing.
+# The dark mode is now handled natively via .streamlit/config.toml.
+st.markdown("""
+<style>
+    .status-box {
+        background-color: #1B3B2B;
+        color: #A3E4D7;
+        padding: 20px;
+        border-radius: 10px;
+        border-left: 5px solid #2ECC71;
+        margin-bottom: 25px;
+    }
+    .alert-banner {
+        background: linear-gradient(90deg, #C0392B, #922B21);
+        color: white;
+        padding: 15px;
+        border-radius: 8px;
+        font-weight: bold;
+        text-align: center;
+        animation: pulse 2s infinite;
+        margin-bottom: 20px;
+    }
+    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.8; } 100% { opacity: 1; } }
+</style>
+""", unsafe_allow_html=True)
+
+st.title("🚦 GridLock AI — Urban Congestion Command Center")
+
+# ==========================================
+# LOAD DATA (Optimized)
 # ==========================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# Updated path because app.py is now inside Frontend folder
-file_path = os.path.join(BASE_DIR, "..", "Backend", "outputs", "cleaned_data_sample.csv")
-zone_file = os.path.join(
-    BASE_DIR,
-    "..",
-    "Backend",
-    "outputs",
-    "zone_full_data.csv"
-)
+OUTPUTS_DIR = os.path.join(BASE_DIR, "..", "Backend", "outputs")
 
 @st.cache_data
 def load_data():
-    try:
-        df = pd.read_csv(file_path)
-        df = df.dropna(subset=["latitude", "longitude"])
-        return df
-    except FileNotFoundError:
-        return pd.DataFrame()
+    raw_df = pd.read_csv(os.path.join(OUTPUTS_DIR, "cleaned_data_sample.csv"))
+    raw_df = raw_df.dropna(subset=["latitude", "longitude"])
     
+    impact_df = pd.read_csv(os.path.join(OUTPUTS_DIR, "zone_impact_scores.csv"))
+    hotspot_df = pd.read_csv(os.path.join(OUTPUTS_DIR, "hotspot_summary.csv"))
+    return raw_df, impact_df, hotspot_df
 
-def load_zone_data():
-    try:
-        return pd.read_csv(zone_file)
-    except FileNotFoundError:
-        return pd.DataFrame()
+df, impact_df, hotspot_df = load_data()
 
-df = load_data()
-zone_df = load_zone_data()
+# ==========================================
+# SIDEBAR
+# ==========================================
+st.sidebar.markdown("---")
+st.sidebar.header("⚙️ Map Simulation Controls")
+show_heatmap = st.sidebar.checkbox("🔥 Show Heatmap Layer", True)
+show_clusters = st.sidebar.checkbox("⭕ Show Hotspot Clusters", True)
+heat_radius = st.sidebar.slider("Heatmap Intensity", 5, 25, 12)
 
+st.sidebar.markdown("---")
+st.sidebar.header("⏱️ Predictive AI Engine")
+future_mins = st.sidebar.slider("Fast-Forward Time (Mins)", 0, 60, 0, step=15)
 
-if df.empty:
-    st.error("❌ Dataset not found! Make sure 'cleaned_data_sample.csv' is in Backend/outputs/")
-else:
-    # -------------------------
-    # SIDEBAR CONTROLS
-    # -------------------------
-    st.sidebar.header("⚙️ Command Center Controls")
-    heat_radius = st.sidebar.slider("Heatmap Intensity", 5, 25, 12)
-    cluster_eps = st.sidebar.slider("Cluster Sensitivity (DBSCAN)", 0.001, 0.01, 0.003)
-    show_heatmap = st.sidebar.checkbox("Show Heatmap", True)
-    show_clusters = st.sidebar.checkbox("Show Hotspot Clusters", True)
-    severity_filter = st.sidebar.multiselect(
-    "Filter Risk Zones",
-    ["HIGH", "MEDIUM", "LOW"],
-    default=["HIGH", "MEDIUM", "LOW"]
-)
+# Initialize simulated_df based on the slider
+impact_multiplier = 1.0 + (future_mins * 0.05)
+simulated_df = impact_df.copy()
+simulated_df["impact_score"] = simulated_df["impact_score"] * impact_multiplier
+
+if future_mins > 0:
+    alert_msg = f"⚠️ PREDICTIVE ALERT (T+{future_mins} mins): Spillover expected in High Risk Zones. Pre-emptive dispatch engaged."
+    st.markdown(f"<div class='alert-banner'>{alert_msg}</div>", unsafe_allow_html=True)
+
+# ==========================================
+# HEADER UI
+# ==========================================
+st.markdown("##### Priority zones identified by the GridLock AI engine.")
+
+total_zones = len(impact_df)
+high_zones = len(impact_df[impact_df['severity'] == 'CRITICAL']) + len(impact_df[impact_df['severity'] == 'HIGH'])
+med_zones = len(impact_df[impact_df['severity'] == 'MEDIUM'])
+
+m1, m2, m3 = st.columns(3)
+with m1: st.markdown(f"🔴 **High Risk Zones**\n# {high_zones}")
+with m2: st.markdown(f"🟠 **Medium Risk Zones**\n# {med_zones}")
+with m3: st.markdown(f"🟢 **Total Zones**\n# {total_zones}")
+
+st.markdown("""
+<div class="status-box">
+    <h3>🟢 All Systems Operational</h3>
+    <p>✅ <b>Spillover Prediction Engine Online</b></p>
+    <p>✅ <b>Impact Score Engine Online</b></p>
+    <p>✅ <b>Hotspot Detection Active</b></p>
+    <p>✅ <b>Enforcement Prioritization Active</b></p>
+</div>
+""", unsafe_allow_html=True)
+
+# ==========================================
+# 3-TAB STRUCTURE
+# ==========================================
+tab1, tab2, tab3 = st.tabs(["🗺️ Live Congestion Map", "📊 ML Risk Analytics", "🚓 Priority Dispatch"])
+
+# Dynamically escalate severity based on simulated impact_score
+def update_severity(score):
+    if score > 0.8: return "CRITICAL"
+    if score > 0.6: return "HIGH"
+    if score > 0.4: return "MEDIUM"
+    return "LOW"
     
-    st.sidebar.markdown("---")
-    st.sidebar.success("✅ ML Engine: Active")
-    st.sidebar.success("✅ Geo Engine: Active")
-    st.sidebar.markdown("---")
+if future_mins > 0:
+    simulated_df["severity"] = simulated_df["impact_score"].apply(update_severity)
 
-    st.sidebar.markdown("### 🧠 AI Modules")
-
-    st.sidebar.info("Risk Prediction Engine")
-
-    st.sidebar.info("Impact Score Engine")
-
-    st.sidebar.info("Hotspot Detection")
-
-    st.sidebar.info("Enforcement Prioritization")
-
-    # -------------------------
-    # TOP KPI METRICS
-    # -------------------------
-    col1, col2, col3, col4 = st.columns(4)
-
-col1.metric(
-    "🚗 Total Violations",
-    len(df)
-)
-
-col2.metric(
-    "🔥 High Risk Zones",
-    len(zone_df[zone_df["severity"] == "HIGH"])
-)
-
-col3.metric(
-    "🚨 Avg Impact Score",
-    round(
-        zone_df["impact_score"].mean(),
-        3
-    )
-)
-
-col4.metric(
-    "🛰️ System Status",
-    "LIVE"
-)
-st.markdown("---")
-
-def recommend_action(row):
-
-    if row["severity"] == "HIGH":
-        return "🚨 Dispatch Tow Truck + Traffic Patrol"
-
-    elif row["severity"] == "MEDIUM":
-        return "🟡 Send Enforcement Team"
-
-    else:
-        return "🟢 Issue E-Challan"
-
-tab1, tab2, tab3 = st.tabs([
-    "🗺️ Live Congestion Map",
-    "🟡 Spillover Risk Data",
-    "🚨 Enforcement Priority"
-])
-
-    # === TAB 1: PERSON 2'S MAP ===
-# === TAB 1: PERSON 2'S MAP ===
+# === TAB 1: OPTIMIZED FOLIUM MAP ===
 with tab1:
-    st.subheader("Live City Congestion & Hotspots")
-    top5 = zone_df.sort_values(
-    by="impact_score",
-    ascending=False
-).head(5)
+    st.subheader("Live City Congestion Map")
+    
+    center_lat = simulated_df["center_lat"].mean()
+    center_lon = simulated_df["center_lng"].mean()
 
-    st.markdown("## 🚨 Critical Zones Requiring Immediate Action")
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=12)
 
-    st.dataframe(
-    top5[
-        [
-            "zone_id",
-            "severity",
-            "impact_score"
-        ]
-    ],
-    use_container_width=True,
-    hide_index=True
-)
-    highest_zone = top5.iloc[0]
-
-    st.error(
-    f"""
-    🚨 CRITICAL ALERT
-
-    Zone {highest_zone['zone_id']} currently has the
-    highest congestion impact score
-    ({highest_zone['impact_score']:.3f})
-
-    Recommended Action:
-    Immediate enforcement deployment.
-    """
-)
-    # Base Map
-    m = folium.Map(
-        location=[
-            df["latitude"].mean(),
-            df["longitude"].mean()
-        ],
-        zoom_start=12,
-        tiles="CartoDB dark_matter"
-    )
-
-    # Heatmap Layer
+    # 1. Heatmap (Optimized but Visible)
     if show_heatmap:
-        heat_data = df[["latitude", "longitude"]].values.tolist()
-        HeatMap(heat_data, radius=heat_radius).add_to(m)
+        # 5000 points is a good balance between fast load time and dense enough to show heat
+        heat_sample = df.sample(min(5000, len(df))) if len(df) > 5000 else df
+        heat_data = heat_sample[["latitude", "longitude"]].values.tolist()
+        # Ensure radius is large enough to be visible
+        HeatMap(heat_data, radius=heat_radius, blur=max(5, heat_radius-5), max_zoom=1).add_to(m)
 
-    # Clustering Layer
+    # 2. Clusters (Only show the TOP 15 Critical Hotspots so the map isn't completely covered in red)
     if show_clusters:
-        coords = df[["latitude", "longitude"]].values
-        clustering = DBSCAN(eps=cluster_eps, min_samples=5).fit(coords)
-        df["cluster"] = clustering.labels_
-
-        for cluster_id in df["cluster"].unique():
-            if cluster_id == -1:
-                continue
-
-            cluster_points = df[df["cluster"] == cluster_id]
-
+        # Sort by impact score and take the worst 15 bottlenecks
+        top_critical = simulated_df[simulated_df['severity'].isin(["CRITICAL", "HIGH"])].sort_values(by="impact_score", ascending=False).head(15)
+        for _, row in top_critical.iterrows():
             folium.Circle(
-                location=[
-                    cluster_points["latitude"].mean(),
-                    cluster_points["longitude"].mean()
-                ],
-                radius=200,
-                color="red",
+                location=[row["center_lat"], row["center_lng"]],
+                radius=min(800, 300 + (row['impact_score'] * 400)), 
+                color="red" if row['severity'] == "CRITICAL" else "orange",
                 fill=True,
-                fill_opacity=0.2,
-                popup=f"🔥 Hotspot Cluster {cluster_id}"
+                fill_opacity=0.3,
+                tooltip=f"<b style='color:red;'>Major Bottleneck: Zone {row['zone_id']}</b><br>Simulated Impact: {row['impact_score']:.2f}"
             ).add_to(m)
 
-    # AI Risk Zones
-    filtered_zones = zone_df[
-    zone_df["severity"].isin(severity_filter)
-]
-    for _, row in zone_df.iterrows():
-
-        severity = str(row["severity"])
-
-        if severity == "HIGH":
-            color = "red"
-        elif severity == "MEDIUM":
-            color = "orange"
-        else:
-            color = "green"
-
-        radius = max(
-            5,
-            min(row["impact_score"] * 80, 20)
-        )
-
-        popup_text = f"""
-        🚨 Zone: {row['zone_id']}
-        <br>Severity: {row['severity']}
-        <br>Risk Score: {row['risk_score']:.5f}
-        <br>Impact Score: {row['impact_score']:.3f}
-        <br>Priority: {row['enforcement_priority']}
-        """
-
-        folium.CircleMarker(
-            location=[
-                row["center_lat"],
-                row["center_lng"]
-            ],
-            radius=radius,
-            color=color,
-            fill=True,
-            fill_opacity=0.8,
-            popup=popup_text
-        ).add_to(m)
-
-    # Violation Markers
-    for _, row in df.iterrows():
-
+    # 3. Individual Violation Markers (Limited to 100 for instant loading)
+    sample_dots = df.sample(min(100, len(df)))
+    for _, row in sample_dots.iterrows():
         violation = str(row.get("violation_list", ""))
-
-        if "WRONG PARKING" in violation:
-            color = "red"
-            priority = "HIGH RISK"
-        elif "NO PARKING" in violation:
-            color = "orange"
-            priority = "MEDIUM RISK"
-        else:
-            color = "blue"
-            priority = "LOW RISK"
+        if "WRONG PARKING" in violation: color = "red"
+        elif "NO PARKING" in violation: color = "orange"
+        else: color = "green"
 
         folium.CircleMarker(
             location=[row["latitude"], row["longitude"]],
-            radius=6,
+            radius=4,
             color=color,
             fill=True,
-            fill_opacity=0.7,
-            popup=f"""
-            🚗 Vehicle: {row.get('vehicle_number','N/A')}
-            <br>⚠️ Violation: {violation}
-            <br>🚨 Priority: {priority}
-            """
+            fill_opacity=0.8,
+            tooltip=f"Violation: {violation}"
         ).add_to(m)
-        # Risk Legend
-    st.markdown("""
-### 🚨 Risk Levels
 
-🔴 High Severity Zone
+    # Force re-render when controls change, and disable returned_objects for maximum speed
+    map_key = f"map_{heat_radius}_{future_mins}_{show_heatmap}_{show_clusters}"
+    st_folium(m, width=1200, height=600, key=map_key, returned_objects=[])
 
-🟠 Medium Severity Zone
-
-🟢 Low Severity Zone
-""")
-
- 
-
-    st_folium(m, width=1200, height=600)
-    # === TAB 2: SPILLOVER RISK DATA ===
+# === TAB 2: ML RISK ANALYTICS ===
 with tab2:
-
-    st.subheader("🟡 Spillover Risk Analysis")
-
-    # ======================================
-    # TOP 10 RISK ZONES CHART
-    # ======================================
-
-    st.markdown("## 🔥 Top 10 Highest Risk Zones")
-
-    top10 = zone_df.sort_values(
-        by="impact_score",
-        ascending=False
-    ).head(10)
-
-    fig = px.bar(
-        top10,
-        x="zone_id",
-        y="impact_score",
-        color="severity",
-        hover_data=[
-            "risk_score",
-            "enforcement_priority"
-        ],
-        title="Top 10 Congestion Risk Zones"
-    )
-
-    st.plotly_chart(
-        fig,
-        use_container_width=True
-    )
-    highest_zone = top10.iloc[0]
-    severity_count = zone_df["severity"].value_counts()
-
-    fig2 = px.pie(
-    values=severity_count.values,
-    names=severity_count.index,
-    title="City Risk Distribution"
-)
-
-    st.plotly_chart(
-    fig2,
-    use_container_width=True
-)
-
-  
-    # ======================================
-    # AI ALERT BOX
-    # ======================================
-
-    highest_zone = top10.iloc[0]
-
-    st.warning(
-        f"""
-        🚨 AI ALERT
-
-        Zone: {highest_zone['zone_id']}
-
-        Severity: {highest_zone['severity']}
-
-        Impact Score: {highest_zone['impact_score']:.3f}
-
-        Recommended Action:
-        Immediate enforcement deployment.
-        """
-    )
-
-    # ======================================
-    # TOP 10 TABLE
-    # ======================================
-
-    st.markdown("## 🚨 Top 10 Critical Enforcement Zones")
-
-    display_zones = top10[
-        [
-            "zone_id",
-            "severity",
-            "risk_score",
-            "impact_score",
-            "enforcement_priority"
-        ]
-    ]
-
-    st.dataframe(
-        display_zones,
-        use_container_width=True,
-        hide_index=True
-    )
-
-    st.markdown("---")
-
-    # ======================================
-    # RAW DATA
-    # ======================================
-
-    with st.expander("📊 View Raw ML Dataset"):
-        st.dataframe(
-            df,
-            use_container_width=True
+    st.subheader("🤖 Deep ML Risk Analysis & Top Predictions")
+    
+    col_c1, col_c2, col_c3 = st.columns(3)
+    
+    with col_c1:
+        severity_counts = simulated_df['severity'].value_counts().reset_index()
+        severity_counts.columns = ['severity', 'count']
+        fig1 = px.pie(
+            severity_counts, values='count', names='severity', hole=0.4,
+            title="Severity Distribution",
+            color='severity',
+            color_discrete_map={"CRITICAL": "red", "HIGH": "orange", "MEDIUM": "yellow", "LOW": "green"},
+            template="plotly_dark"
         )
+        st.plotly_chart(fig1, use_container_width=True)
 
+    with col_c2:
+        top_10 = simulated_df.sort_values(by="impact_score", ascending=False).head(10)
+        top_10["zone_id_str"] = "Zone " + top_10["zone_id"].astype(str)
+        fig2 = px.bar(
+            top_10, x="zone_id_str", y="impact_score", color="severity",
+            title="Top 10 Critical Zones",
+            color_discrete_map={"CRITICAL": "red", "HIGH": "orange", "MEDIUM": "yellow", "LOW": "green"},
+            template="plotly_dark"
+        )
+        st.plotly_chart(fig2, use_container_width=True)
 
-# === TAB 3: ENFORCEMENT PRIORITY ===
+    with col_c3:
+        fig3 = px.scatter(
+            simulated_df, x="violation_count", y="impact_score", 
+            color="severity", size="risk_score", hover_data=["zone_id"],
+            title="Impact vs Violations",
+            color_discrete_map={"CRITICAL": "red", "HIGH": "orange", "MEDIUM": "yellow", "LOW": "green"},
+            template="plotly_dark"
+        )
+        st.plotly_chart(fig3, use_container_width=True)
+
+# === TAB 3: DISPATCH CONSOLE ===
 with tab3:
+    st.subheader("🚓 Automated Action Output")
+    
+    def format_urgency(val):
+        if val == "CRITICAL": return "🚨 Dispatch Tow Truck ASAP"
+        if val == "HIGH": return "🚓 Send Patrol Unit"
+        return "🟢 Issue E-Challan"
 
-    st.subheader("🚨 AI Enforcement Command Center")
-    critical_zone = zone_df.sort_values(
-    by="impact_score",
-    ascending=False
-).iloc[0]
-
-    st.error(
-    f"""
-    🚨 AI Enforcement Recommendation
-
-    Deploy enforcement immediately to:
-
-    Zone: {critical_zone['zone_id']}
-
-    Severity: {critical_zone['severity']}
-
-    Impact Score: {critical_zone['impact_score']:.3f}
-    """
-)
-
-    st.markdown(
-        "Priority zones identified by the GridLock AI engine."
+    dispatch_df = simulated_df.copy()
+    dispatch_df["Recommended_Action"] = dispatch_df["severity"].apply(format_urgency)
+    
+    st.markdown("##### Real-Time Dispatch Requirements")
+    action_summary = dispatch_df['Recommended_Action'].value_counts().reset_index()
+    action_summary.columns = ['Action', 'Count']
+    
+    fig_dispatch = px.bar(
+        action_summary, x="Count", y="Action", orientation='h',
+        title="Units Needed For Immediate Dispatch",
+        color="Action",
+        color_discrete_map={"🚨 Dispatch Tow Truck ASAP": "red", "🚓 Send Patrol Unit": "orange", "🟢 Issue E-Challan": "green"},
+        template="plotly_dark"
     )
-
-    # KPI CARDS
-    c1, c2, c3 = st.columns(3)
-
-    c1.metric(
-        "🔴 High Risk Zones",
-        len(zone_df[zone_df["severity"] == "HIGH"])
-    )
-
-    c2.metric(
-        "🟠 Medium Risk Zones",
-        len(zone_df[zone_df["severity"] == "MEDIUM"])
-    )
-
-    c3.metric(
-        "🟢 Total Zones",
-        len(zone_df)
-    )
-
-    st.markdown("---")
-    st.success(
-    """
-    🟢 All Systems Operational
-
-    ✅ Spillover Prediction Engine Online
-
-    ✅ Impact Score Engine Online
-
-    ✅ Hotspot Detection Active
-
-    ✅ Enforcement Prioritization Active
-    """
-)
-
-    # TOP PRIORITY ZONES
-    priority_zones = zone_df.sort_values(
-        by="enforcement_priority"
-    ).head(20)
-
-    priority_zones["Recommended_Action"] = (
-        priority_zones.apply(
-            recommend_action,
-            axis=1
-        )
-    )
-
-    display_cols = [
-        "zone_id",
-        "severity",
-        "risk_score",
-        "impact_score",
-        "Recommended_Action"
-    ]
-
+    st.plotly_chart(fig_dispatch, use_container_width=True)
+    
+    st.markdown("##### Priority Action Table")
+    
+    c1, c2 = st.columns(2)
+    with c1:
+        severity_filter = st.multiselect("Filter by Severity:", ["CRITICAL", "HIGH", "MEDIUM", "LOW"], default=["CRITICAL", "HIGH", "MEDIUM", "LOW"])
+    with c2:
+        sort_by = st.selectbox("Sort Priority By:", ["Highest Impact", "Most Violations"])
+        
+    if severity_filter:
+        dispatch_df = dispatch_df[dispatch_df["severity"].isin(severity_filter)]
+        
+    if sort_by == "Highest Impact":
+        dispatch_df = dispatch_df.sort_values(by="impact_score", ascending=False)
+    else:
+        dispatch_df = dispatch_df.sort_values(by="violation_count", ascending=False)
+    
+    display_cols = ["zone_id", "severity", "risk_score", "impact_score", "Recommended_Action"]
+    
+    dispatch_df["risk_score"] = dispatch_df["risk_score"].round(4)
+    dispatch_df["impact_score"] = dispatch_df["impact_score"].round(4)
+    
+    def highlight_critical(row):
+        if row.severity == 'CRITICAL':
+            return ['background-color: rgba(255, 0, 0, 0.2)'] * len(row)
+        return [''] * len(row)
+        
     st.dataframe(
-        priority_zones[display_cols],
+        dispatch_df[display_cols].style.apply(highlight_critical, axis=1),
         use_container_width=True,
-        hide_index=True
+        hide_index=True,
+        height=500
     )
-    csv = priority_zones.to_csv(index=False)
-
-st.download_button(
-    label="📥 Download Enforcement Report",
-    data=csv,
-    file_name="gridlock_ai_enforcement_report.csv",
-    mime="text/csv"
-)
-st.markdown("---")
-
-st.markdown("""
-## 🏗️ GridLock AI Architecture
-
-### Data Layer
-Parking Violation Dataset
-
-⬇
-
-### Intelligence Layer
-Risk Prediction Engine
-+
-Impact Score Engine
-
-⬇
-
-### Decision Layer
-Hotspot Detection
-+
-Zone Ranking
-
-⬇
-
-### Action Layer
-Enforcement Recommendations
-+
-Incident Reports
-""")
