@@ -147,38 +147,42 @@ st.markdown("""
 # ==========================================
 tab1, tab2, tab3 = st.tabs(["🗺️ Live Congestion Map", "📊 ML Risk Analytics", "🚓 Priority Dispatch"])
 
-# === TAB 1: OPTIMIZED FOLIUM MAP (SUPER FAST) ===
+# Dynamically escalate severity based on simulated impact_score
+def update_severity(score):
+    if score > 0.8: return "CRITICAL"
+    if score > 0.6: return "HIGH"
+    if score > 0.4: return "MEDIUM"
+    return "LOW"
+    
+if future_mins > 0:
+    simulated_df["severity"] = simulated_df["impact_score"].apply(update_severity)
+
+# === TAB 1: OPTIMIZED FOLIUM MAP ===
 with tab1:
     st.subheader("Live City Congestion Map")
     
-    center_lat = impact_df["center_lat"].mean()
-    center_lon = impact_df["center_lng"].mean()
+    center_lat = simulated_df["center_lat"].mean()
+    center_lon = simulated_df["center_lng"].mean()
 
-    # User explicitly requested NO dark effect on the map itself.
-    # We use the default OpenStreetMap tiles which are bright and colorful.
     m = folium.Map(location=[center_lat, center_lon], zoom_start=12)
 
-    # 1. Heatmap (Native & Fast)
     if show_heatmap:
-        # Downsample heatmap slightly for instant rendering
         heat_sample = df.sample(min(15000, len(df))) if len(df) > 15000 else df
         heat_data = heat_sample[["latitude", "longitude"]].values.tolist()
-        HeatMap(heat_data, radius=heat_radius).add_to(m)
+        HeatMap(heat_data, radius=heat_radius, blur=heat_radius-2).add_to(m)
 
-    # 2. Clusters (Loaded instantly from pre-calculated ML Output, NO LIVE DBSCAN)
     if show_clusters:
-        for _, row in impact_df.iterrows():
+        for _, row in simulated_df.iterrows():
             if row['severity'] in ["CRITICAL", "HIGH"]:
                 folium.Circle(
                     location=[row["center_lat"], row["center_lng"]],
-                    radius=200 + (future_mins * 10), 
+                    radius=min(600, 200 + (row['impact_score'] * 300)), 
                     color="red" if row['severity'] == "CRITICAL" else "orange",
                     fill=True,
                     fill_opacity=0.2,
-                    popup=f"🔥 Zone {row['zone_id']} | Impact: {row['impact_score']:.2f}"
+                    tooltip=f"<b style='color:red;'>Zone {row['zone_id']}</b><br>Simulated Impact: {row['impact_score']:.2f}"
                 ).add_to(m)
 
-    # 3. Individual Violation Markers (Limited to 200 for instant loading)
     sample_dots = df.sample(min(200, len(df)))
     for _, row in sample_dots.iterrows():
         violation = str(row.get("violation_list", ""))
@@ -195,18 +199,18 @@ with tab1:
             tooltip=f"Violation: {violation}"
         ).add_to(m)
 
-    st_folium(m, width=1200, height=600)
+    # Force re-render when controls change
+    map_key = f"map_{heat_radius}_{future_mins}_{show_heatmap}_{show_clusters}"
+    st_folium(m, width=1200, height=600, key=map_key)
 
 # === TAB 2: ML RISK ANALYTICS ===
 with tab2:
     st.subheader("🤖 Deep ML Risk Analysis & Top Predictions")
     
-    # 3 Charts Layout
     col_c1, col_c2, col_c3 = st.columns(3)
     
     with col_c1:
-        # Restored Donut Chart (Circle Visualization)
-        severity_counts = impact_df['severity'].value_counts().reset_index()
+        severity_counts = simulated_df['severity'].value_counts().reset_index()
         severity_counts.columns = ['severity', 'count']
         fig1 = px.pie(
             severity_counts, values='count', names='severity', hole=0.4,
@@ -218,8 +222,7 @@ with tab2:
         st.plotly_chart(fig1, use_container_width=True)
 
     with col_c2:
-        # Top 10 Predictions
-        top_10 = impact_df.sort_values(by="impact_score", ascending=False).head(10)
+        top_10 = simulated_df.sort_values(by="impact_score", ascending=False).head(10)
         top_10["zone_id_str"] = "Zone " + top_10["zone_id"].astype(str)
         fig2 = px.bar(
             top_10, x="zone_id_str", y="impact_score", color="severity",
@@ -230,9 +233,8 @@ with tab2:
         st.plotly_chart(fig2, use_container_width=True)
 
     with col_c3:
-        # Bubble Chart
         fig3 = px.scatter(
-            impact_df, x="violation_count", y="impact_score", 
+            simulated_df, x="violation_count", y="impact_score", 
             color="severity", size="risk_score", hover_data=["zone_id"],
             title="Impact vs Violations",
             color_discrete_map={"CRITICAL": "red", "HIGH": "orange", "MEDIUM": "yellow", "LOW": "green"},
@@ -249,10 +251,9 @@ with tab3:
         if val == "HIGH": return "🚓 Send Patrol Unit"
         return "🟢 Issue E-Challan"
 
-    dispatch_df = impact_df.copy()
+    dispatch_df = simulated_df.copy()
     dispatch_df["Recommended_Action"] = dispatch_df["severity"].apply(format_urgency)
     
-    # Restored Dispatch Bar Chart
     st.markdown("##### Real-Time Dispatch Requirements")
     action_summary = dispatch_df['Recommended_Action'].value_counts().reset_index()
     action_summary.columns = ['Action', 'Count']
@@ -270,7 +271,6 @@ with tab3:
     
     c1, c2 = st.columns(2)
     with c1:
-        # Changed default to show ALL so user sees everything immediately
         severity_filter = st.multiselect("Filter by Severity:", ["CRITICAL", "HIGH", "MEDIUM", "LOW"], default=["CRITICAL", "HIGH", "MEDIUM", "LOW"])
     with c2:
         sort_by = st.selectbox("Sort Priority By:", ["Highest Impact", "Most Violations"])
