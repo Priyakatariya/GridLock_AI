@@ -249,7 +249,7 @@ with tab3:
         if val == "HIGH": return "🚓 Send Patrol Unit"
         return "🟢 Issue E-Challan"
 
-    dispatch_df = hotspot_df.copy()
+    dispatch_df = impact_df.copy()
     dispatch_df["Recommended_Action"] = dispatch_df["severity"].apply(format_urgency)
     
     # Restored Dispatch Bar Chart
@@ -270,7 +270,8 @@ with tab3:
     
     c1, c2 = st.columns(2)
     with c1:
-        severity_filter = st.multiselect("Filter by Severity:", ["CRITICAL", "HIGH", "MEDIUM", "LOW"], default=["CRITICAL", "HIGH"])
+        # Changed default to show ALL so user sees everything immediately
+        severity_filter = st.multiselect("Filter by Severity:", ["CRITICAL", "HIGH", "MEDIUM", "LOW"], default=["CRITICAL", "HIGH", "MEDIUM", "LOW"])
     with c2:
         sort_by = st.selectbox("Sort Priority By:", ["Highest Impact", "Most Violations"])
         
