@@ -130,25 +130,27 @@ with tab1:
 
     m = folium.Map(location=[center_lat, center_lon], zoom_start=12)
 
-    # 1. Heatmap (Optimized for Instant Load)
+    # 1. Heatmap (Optimized but Visible)
     if show_heatmap:
-        # 15000 points is too large for Folium HTML payload, causing slow load. 2000 is instant and looks identical.
-        heat_sample = df.sample(min(2000, len(df))) if len(df) > 2000 else df
+        # 5000 points is a good balance between fast load time and dense enough to show heat
+        heat_sample = df.sample(min(5000, len(df))) if len(df) > 5000 else df
         heat_data = heat_sample[["latitude", "longitude"]].values.tolist()
-        HeatMap(heat_data, radius=heat_radius, blur=heat_radius-2).add_to(m)
+        # Ensure radius is large enough to be visible
+        HeatMap(heat_data, radius=heat_radius, blur=max(5, heat_radius-5), max_zoom=1).add_to(m)
 
-    # 2. Clusters (Fast)
+    # 2. Clusters (Only show the TOP 15 Critical Hotspots so the map isn't completely covered in red)
     if show_clusters:
-        for _, row in simulated_df.iterrows():
-            if row['severity'] in ["CRITICAL", "HIGH"]:
-                folium.Circle(
-                    location=[row["center_lat"], row["center_lng"]],
-                    radius=min(600, 200 + (row['impact_score'] * 300)), 
-                    color="red" if row['severity'] == "CRITICAL" else "orange",
-                    fill=True,
-                    fill_opacity=0.2,
-                    tooltip=f"<b style='color:red;'>Zone {row['zone_id']}</b><br>Simulated Impact: {row['impact_score']:.2f}"
-                ).add_to(m)
+        # Sort by impact score and take the worst 15 bottlenecks
+        top_critical = simulated_df[simulated_df['severity'].isin(["CRITICAL", "HIGH"])].sort_values(by="impact_score", ascending=False).head(15)
+        for _, row in top_critical.iterrows():
+            folium.Circle(
+                location=[row["center_lat"], row["center_lng"]],
+                radius=min(800, 300 + (row['impact_score'] * 400)), 
+                color="red" if row['severity'] == "CRITICAL" else "orange",
+                fill=True,
+                fill_opacity=0.3,
+                tooltip=f"<b style='color:red;'>Major Bottleneck: Zone {row['zone_id']}</b><br>Simulated Impact: {row['impact_score']:.2f}"
+            ).add_to(m)
 
     # 3. Individual Violation Markers (Limited to 100 for instant loading)
     sample_dots = df.sample(min(100, len(df)))
