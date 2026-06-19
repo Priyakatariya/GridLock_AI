@@ -230,19 +230,20 @@ function simulateLiveFeed() {
     } else {
       // 30% chance to increase congestion
       if (Math.random() < 0.3) {
-        z.impact_score += 0.02 + (Math.random() * 0.06);
-        z.violation_count += Math.floor(Math.random() * 5 + 1);
+        // Boosted growth so it reaches CRITICAL faster for the demo
+        z.impact_score += 0.04 + (Math.random() * 0.08);
+        z.violation_count += Math.floor(Math.random() * 8 + 2);
         changed = true;
       } else {
         // slight jitter
-        z.impact_score += (Math.random() - 0.5) * 0.01;
+        z.impact_score += (Math.random() - 0.5) * 0.02;
         z.impact_score = Math.max(0.1, z.impact_score);
         changed = true;
       }
 
       // If it hits CRITICAL, mark for resolution next tick (simulates dispatch)
-      // Limit to max 3 active dispatches at any time to simulate limited patrol units!
-      if (z.impact_score >= 0.85 && Math.random() < 0.4 && APP.resolvingZones.size < 3) {
+      // Allow it to dispatch wherever needed for maximum visual impact!
+      if (z.impact_score >= 0.80 && Math.random() < 0.7) {
         APP.resolvingZones.add(z.zone_id);
       }
     }
@@ -479,14 +480,18 @@ function drawMapFrame() {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Draw active dispatch radar if resolving
+    // Draw active dispatch radar if resolving (Sci-Fi Ripples)
     if (APP.resolvingZones && APP.resolvingZones.has(cz.zone.zone_id)) {
-       const radarR = (time % 800) / 800 * (cz.r * 2.5);
-       ctx.beginPath();
-       ctx.arc(cz.x, cz.y, cz.r + radarR, 0, Math.PI * 2);
-       ctx.strokeStyle = `rgba(0, 229, 255, ${1 - (radarR / (cz.r * 2.5))})`;
-       ctx.lineWidth = 2.5;
-       ctx.stroke();
+       for (let p = 0; p < 3; p++) {
+         const offset = p * 400; // stagger the rings
+         let progress = ((time + offset) % 1200) / 1200;
+         const radarR = progress * (cz.r * 2.5);
+         ctx.beginPath();
+         ctx.arc(cz.x, cz.y, cz.r + radarR, 0, Math.PI * 2);
+         ctx.strokeStyle = `rgba(0, 229, 255, ${1 - progress})`;
+         ctx.lineWidth = 2;
+         ctx.stroke();
+       }
     }
 
     // Fill circle
