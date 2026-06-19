@@ -241,7 +241,8 @@ function simulateLiveFeed() {
       }
 
       // If it hits CRITICAL, mark for resolution next tick (simulates dispatch)
-      if (z.impact_score >= 0.80 && Math.random() < 0.6) {
+      // Limit to max 3 active dispatches at any time to simulate limited patrol units!
+      if (z.impact_score >= 0.85 && Math.random() < 0.4 && APP.resolvingZones.size < 3) {
         APP.resolvingZones.add(z.zone_id);
       }
     }
@@ -284,6 +285,13 @@ function populateDashboard() {
   updateAlertBanner();
   renderZoneMap();
   renderDispatchTable();
+  
+  // Update charts if their respective tabs are active
+  const analyticsActive = document.getElementById('tab-analytics')?.classList.contains('active');
+  if (analyticsActive) {
+    analyticsRendered = false;
+    renderAnalyticsCharts();
+  }
 }
 
 // ── Stat Cards ───────────────────────────────────────────────────────────
@@ -442,7 +450,8 @@ function drawMapFrame() {
       const color = getSeverityColor(cz.zone.severity);
       // Use slightly softer opacity for light mode heatmap
       gradient.addColorStop(0, color + (isLight ? '40' : '70')); 
-      gradient.addColorStop(1, 'transparent');
+      // Use color + '00' instead of 'transparent' to avoid black interpolation artifacts
+      gradient.addColorStop(1, color + '00');
       ctx.fillStyle = gradient;
       ctx.fillRect(cz.x - hR * 2, cz.y - hR * 2, hR * 4, hR * 4);
     });
