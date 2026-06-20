@@ -65,6 +65,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setInterval(updateClock, 1000);
   initTabs();
   initSidebar();
+  initNavbarDropdowns();
   loadAllData();
 });
 
@@ -196,7 +197,11 @@ async function loadAllData() {
 
     // Start Live Simulation
     if (!APP.liveInterval) {
-      APP.liveInterval = setInterval(simulateLiveFeed, 2500);
+      const savedInterval = parseInt(localStorage.getItem('gridlock_sim_interval'));
+      const simInterval = (savedInterval !== null && !isNaN(savedInterval)) ? savedInterval : 2500;
+      if (simInterval > 0) {
+        APP.liveInterval = setInterval(simulateLiveFeed, simInterval);
+      }
     }
   } catch (err) {
     console.error('Failed to load data:', err);
@@ -249,7 +254,7 @@ function simulateLiveFeed() {
         changed = true;
       }
 
-      if (z.impact_score >= 0.80 && Math.random() < 0.7) {
+      if (APP.dispatchMode !== 'manual' && z.impact_score >= 0.80 && Math.random() < 0.7) {
         APP.resolvingZones.add(z.zone_id);
       }
     }
@@ -288,6 +293,7 @@ function populateDashboard() {
   updateAlertBanner();
   renderZoneMap();
   renderDispatchTable();
+  updateNotifications();
   
   const analyticsActive = document.getElementById('tab-analytics')?.classList.contains('active');
   if (analyticsActive) {
@@ -650,7 +656,9 @@ function getSeverityColor(severity) {
 function normalizeRadius(violationCount) {
   const minR = 300, maxR = 900;
   const maxV = APP.zones.length > 0 ? Math.max(...APP.zones.map(z => z.violation_count)) : 100;
-  return minR + ((violationCount / (maxV || 1)) * (maxR - minR));
+  const baseRadius = minR + ((violationCount / (maxV || 1)) * (maxR - minR));
+  const factor = APP.heatRadius ? (APP.heatRadius / 12) : 1;
+  return baseRadius * factor;
 }
 
 // ── Dynamic Map Initialization ───────────────────────────────────────────
@@ -726,21 +734,29 @@ function renderMapZones() {
   displayZones.forEach(z => {
     const color = getSeverityColor(z.severity);
     const r = normalizeRadius(z.violation_count);
+    const opacity = APP.showHeatmap ? 0.2 : 0;
+    const strokeOpacity = APP.showHeatmap ? 0.8 : 0;
+    const weight = APP.showHeatmap ? 1.5 : 0;
 
     if (APP.mapMode === 'leaflet') {
       const circle = L.circle([z.center_lat, z.center_lng], {
         radius: r,
         color: color,
         fillColor: color,
-        fillOpacity: 0.2,
-        weight: 1.5
+        fillOpacity: opacity,
+        opacity: strokeOpacity,
+        weight: weight
       }).addTo(APP.map);
 
       // Hover Tooltip featuring Geocode API address
       circle.on('mouseover', async (e) => {
         APP.hoveredZone = z.zone_id;
         let address = "Geocoding coordinates via API...";
-        circle.setStyle({ fillOpacity: 0.4, weight: 2.5 });
+        if (APP.showHeatmap) {
+          circle.setStyle({ fillOpacity: 0.4, weight: 2.5 });
+        } else {
+          circle.setStyle({ fillOpacity: 0.1, weight: 1.0, opacity: 0.5 });
+        }
 
         try {
           const geoRes = await fetch(`/api/mappls/rev_geocode?lat=${z.center_lat}&lng=${z.center_lng}`);
@@ -774,7 +790,11 @@ function renderMapZones() {
 
       circle.on('mouseout', () => {
         document.getElementById('mapTooltip').classList.remove('visible');
-        circle.setStyle({ fillOpacity: 0.2, weight: 1.5 });
+        if (APP.showHeatmap) {
+          circle.setStyle({ fillOpacity: 0.2, weight: 1.5, opacity: 0.8 });
+        } else {
+          circle.setStyle({ fillOpacity: 0, weight: 0, opacity: 0 });
+        }
       });
 
       circle.on('click', () => {
@@ -792,8 +812,9 @@ function renderMapZones() {
           radius: r,
           fillColor: color,
           strokeColor: color,
-          fillOpacity: 0.2,
-          strokeWeight: 1.5
+          fillOpacity: opacity,
+          strokeOpacity: strokeOpacity,
+          strokeWeight: weight
         });
 
         circle.addListener('click', () => {
@@ -815,6 +836,9 @@ function renderMapZones() {
 function updateMapLayers() {
   if (!APP.map) return;
   const displayZones = APP.zones.slice(0, 30);
+  const opacity = APP.showHeatmap ? 0.2 : 0;
+  const strokeOpacity = APP.showHeatmap ? 0.8 : 0;
+  const weight = APP.showHeatmap ? 1.5 : 0;
   
   displayZones.forEach(z => {
     const marker = APP.zoneMarkers[z.zone_id];
@@ -826,13 +850,23 @@ function updateMapLayers() {
         marker.setStyle({
           color: color,
           fillColor: color,
-          radius: r
+          radius: r,
+          fillOpacity: opacity,
+          opacity: strokeOpacity,
+          weight: weight
         });
       } else {
         try {
           marker.setRadius(r);
           marker.setFillColor(color);
           marker.setStrokeColor(color);
+          if (typeof marker.setOption === 'function') {
+            marker.setOption({
+              fillOpacity: opacity,
+              strokeOpacity: strokeOpacity,
+              strokeWeight: weight
+            });
+          }
         } catch (e) {
           marker.radius = r;
           marker.fillColor = color;
@@ -1396,6 +1430,16 @@ function renderDispatchTable() {
   tbody.innerHTML = data.map(d => {
     const sevClass = d.severity.toLowerCase();
     const rowClass = d.severity === 'CRITICAL' ? 'critical-row' : '';
+    
+    let actionHtml = d.action;
+    if (APP.dispatchMode === 'manual') {
+      if (APP.resolvingZones.has(d.zone_id)) {
+        actionHtml = `<span style="color:var(--accent-cyan); font-weight:bold; font-size:10px;">Approved & Dispatching</span>`;
+      } else {
+        actionHtml = `<button class="console-btn active approve-dispatch-btn" data-zone-id="${d.zone_id}" style="font-size:9px; padding:3px 6px; margin:0; line-height:1; min-width:90px;">Approve Action</button>`;
+      }
+    }
+
     return `
       <tr class="${rowClass}">
         <td>${d.zone_id}</td>
@@ -1403,10 +1447,24 @@ function renderDispatchTable() {
         <td>${d.risk_score.toFixed(4)}</td>
         <td>${d.impact_score.toFixed(4)}</td>
         <td>${d.violation_count.toLocaleString()}</td>
-        <td>${d.action}</td>
+        <td>${actionHtml}</td>
       </tr>
     `;
   }).join('');
+
+  // Attach event listeners for Manual Approve
+  if (APP.dispatchMode === 'manual') {
+    tbody.querySelectorAll('.approve-dispatch-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const zoneId = btn.dataset.zoneId;
+        APP.resolvingZones.add(zoneId);
+        renderDispatchTable();
+        updateSidebarCounts();
+        updateStatCards();
+        showSystemNotification('Dispatch Approved', `Enforcement unit dispatched to ${getZoneLabel(zoneId)} (${zoneId}).`);
+      });
+    });
+  }
 
   if (typeof renderDispatchChart === 'function') {
     renderDispatchChart(APP.dispatch);
@@ -1431,4 +1489,273 @@ function downloadReport() {
   a.download = 'gridlock_dispatch_report.csv';
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// ── Navbar Dropdowns & Configurations ──────────────────────────────────────
+function initNavbarDropdowns() {
+  const notifBtn = document.getElementById('notifBtn');
+  const notifDropdown = document.getElementById('notifDropdown');
+  const settingsBtn = document.getElementById('settingsBtn');
+  const settingsDropdown = document.getElementById('settingsDropdown');
+  
+  APP.dismissedZones = new Set();
+  APP.dispatchMode = localStorage.getItem('gridlock_dispatch_mode') || 'auto';
+  APP.simInterval = parseInt(localStorage.getItem('gridlock_sim_interval')) || 2500;
+  
+  const simSelect = document.getElementById('settingSimInterval');
+  if (simSelect) {
+    simSelect.value = APP.simInterval.toString();
+  }
+  
+  const btnAuto = document.getElementById('btnSettingDispatchAuto');
+  const btnManual = document.getElementById('btnSettingDispatchManual');
+  if (btnAuto && btnManual) {
+    if (APP.dispatchMode === 'manual') {
+      btnAuto.classList.remove('active');
+      btnManual.classList.add('active');
+    } else {
+      btnAuto.classList.add('active');
+      btnManual.classList.remove('active');
+    }
+    
+    btnAuto.addEventListener('click', () => {
+      btnAuto.classList.add('active');
+      btnManual.classList.remove('active');
+      APP.dispatchMode = 'auto';
+      localStorage.setItem('gridlock_dispatch_mode', 'auto');
+      renderDispatchTable();
+      showSystemNotification('Dispatch Mode Updated', 'Enforcement actions will now be auto-dispatched.');
+    });
+    
+    btnManual.addEventListener('click', () => {
+      btnManual.classList.add('active');
+      btnAuto.classList.remove('active');
+      APP.dispatchMode = 'manual';
+      localStorage.setItem('gridlock_dispatch_mode', 'manual');
+      renderDispatchTable();
+      showSystemNotification('Dispatch Mode Updated', 'Enforcement actions now require manual approval.');
+    });
+  }
+
+  loadSettings();
+
+  if (notifBtn && notifDropdown) {
+    notifBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      notifDropdown.classList.toggle('hidden');
+      if (settingsDropdown) settingsDropdown.classList.add('hidden');
+      updateNotifications();
+    });
+  }
+  
+  if (settingsBtn && settingsDropdown) {
+    settingsBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      settingsDropdown.classList.toggle('hidden');
+      if (notifDropdown) notifDropdown.classList.add('hidden');
+    });
+  }
+  
+  document.addEventListener('click', (e) => {
+    if (notifDropdown && !notifDropdown.contains(e.target) && e.target !== notifBtn) {
+      notifDropdown.classList.add('hidden');
+    }
+    if (settingsDropdown && !settingsDropdown.contains(e.target) && e.target !== settingsBtn) {
+      settingsDropdown.classList.add('hidden');
+    }
+  });
+
+  const dismissAllBtn = document.getElementById('btnDismissAllAlerts');
+  if (dismissAllBtn) {
+    dismissAllBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      APP.zones.forEach(z => {
+        if (z.severity === 'CRITICAL' || z.severity === 'HIGH') {
+          APP.dismissedZones.add(z.zone_id);
+        }
+      });
+      updateNotifications();
+      showSystemNotification('Alerts Dismissed', 'All active alerts have been cleared.');
+    });
+  }
+
+  const saveBtn = document.getElementById('btnSaveSettings');
+  if (saveBtn) {
+    saveBtn.addEventListener('click', async () => {
+      const clientId = document.getElementById('settingMapplsId').value.trim();
+      const clientSecret = document.getElementById('settingMapplsSecret').value.trim();
+      const intervalVal = parseInt(document.getElementById('settingSimInterval').value);
+      
+      APP.simInterval = intervalVal;
+      localStorage.setItem('gridlock_sim_interval', intervalVal.toString());
+      
+      try {
+        saveBtn.textContent = 'Saving...';
+        const res = await fetch('/api/mappls/save_keys', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ client_id: clientId, client_secret: clientSecret })
+        });
+        
+        if (res.ok) {
+          showSystemNotification('Settings Saved', 'System configurations updated successfully.');
+          setTimeout(() => {
+            location.reload();
+          }, 1000);
+        } else {
+          showSystemNotification('Error Saving', 'Failed to save server credentials.');
+          saveBtn.textContent = 'Save & Reload';
+        }
+      } catch (err) {
+        console.error(err);
+        showSystemNotification('Error Saving', 'Network error while saving credentials.');
+        saveBtn.textContent = 'Save & Reload';
+      }
+    });
+  }
+}
+
+function updateNotifications() {
+  const notifList = document.getElementById('notifList');
+  if (!notifList) return;
+  
+  if (!APP.dismissedZones) APP.dismissedZones = new Set();
+  
+  const activeAlerts = APP.zones.filter(z => 
+    (z.severity === 'CRITICAL' || z.severity === 'HIGH') && 
+    !APP.dismissedZones.has(z.zone_id)
+  );
+  
+  const countBadge = document.getElementById('notifCount');
+  if (countBadge) {
+    countBadge.textContent = activeAlerts.length;
+    if (activeAlerts.length > 0) {
+      countBadge.style.display = 'inline-block';
+    } else {
+      countBadge.style.display = 'none';
+    }
+  }
+  
+  if (activeAlerts.length === 0) {
+    notifList.innerHTML = '<li class="placeholder">No critical incidents reported</li>';
+    return;
+  }
+  
+  notifList.innerHTML = activeAlerts.map(z => {
+    const isCritical = z.severity === 'CRITICAL';
+    const label = getZoneLabel(z.zone_id);
+    
+    return `
+      <li data-zone-id="${z.zone_id}" style="border-bottom: 1px solid var(--border-subtle); padding: 10px 12px; cursor: pointer;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+          <span style="display:flex; align-items:center; gap:6px; font-weight:bold; color:var(--text-primary);">
+            <span class="zone-status-dot ${isCritical ? 'critical' : 'high'}" style="margin:0;"></span>
+            ${isCritical ? '🔴 CRITICAL' : '🟠 HIGH RISK'}
+          </span>
+          <span style="font-family:var(--font-mono); font-size:10px; color:var(--accent-cyan); font-weight:bold;">
+            ${z.impact_score.toFixed(4)}
+          </span>
+        </div>
+        <div style="font-weight:600; color:var(--text-secondary); margin-bottom:2px;">
+          ${label} (${z.zone_id})
+        </div>
+        <div style="font-size:10px; color:var(--text-muted);">
+          ${z.violation_count} active violations. Click to focus map.
+        </div>
+        <div class="alert-time">Active now</div>
+      </li>
+    `;
+  }).join('');
+  
+  notifList.querySelectorAll('li[data-zone-id]').forEach(li => {
+    li.addEventListener('click', () => {
+      const zoneId = li.dataset.zoneId;
+      const z = APP.zones.find(zone => zone.zone_id === zoneId);
+      if (z) {
+        const mapTabBtn = document.querySelector('.tab-btn[data-tab="map"]');
+        if (mapTabBtn) mapTabBtn.click();
+        
+        selectZoneForConsole(zoneId);
+        
+        if (z.center_lat && z.center_lng) {
+          MapManager.recenter(z.center_lat, z.center_lng);
+          if (APP.mapMode === 'leaflet') {
+            const marker = APP.zoneMarkers[zoneId];
+            if (marker) {
+              marker.setStyle({ fillOpacity: 0.6, weight: 3 });
+              setTimeout(() => marker.setStyle({ fillOpacity: 0.2, weight: 1.5 }), 1200);
+            }
+          }
+        }
+        
+        const notifDropdown = document.getElementById('notifDropdown');
+        if (notifDropdown) notifDropdown.classList.add('hidden');
+      }
+    });
+  });
+}
+
+function showSystemNotification(title, message) {
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    container.style.position = 'fixed';
+    container.style.bottom = '20px';
+    container.style.right = '20px';
+    container.style.zIndex = '9999';
+    container.style.display = 'flex';
+    container.style.flexDirection = 'column';
+    container.style.gap = '10px';
+    document.body.appendChild(container);
+  }
+  
+  const toast = document.createElement('div');
+  toast.className = 'toast-notification';
+  toast.style.background = 'rgba(10, 15, 28, 0.95)';
+  toast.style.borderLeft = '4px solid var(--accent-cyan)';
+  toast.style.border = '1px solid var(--border-primary)';
+  toast.style.borderRadius = '4px';
+  toast.style.padding = '12px 16px';
+  toast.style.minWidth = '250px';
+  toast.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.5), var(--shadow-glow-cyan)';
+  toast.style.color = 'var(--text-primary)';
+  toast.style.fontFamily = 'var(--font-mono)';
+  toast.style.fontSize = '11px';
+  toast.style.transition = 'all 0.3s ease';
+  toast.style.opacity = '0';
+  toast.style.transform = 'translateY(20px)';
+  
+  toast.innerHTML = `
+    <div style="font-weight: bold; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+      <span>⚡</span> <span>${title}</span>
+    </div>
+    <div style="color: var(--text-secondary);">${message}</div>
+  `;
+  
+  container.appendChild(toast);
+  
+  setTimeout(() => {
+    toast.style.opacity = '1';
+    toast.style.transform = 'translateY(0)';
+  }, 10);
+  
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(-20px)';
+    setTimeout(() => toast.remove(), 300);
+  }, 4000);
+}
+
+async function loadSettings() {
+  try {
+    const res = await fetch('/api/mappls/keys');
+    if (res.ok) {
+      const data = await res.json();
+      if (data.client_id) document.getElementById('settingMapplsId').value = data.client_id;
+      if (data.client_secret) document.getElementById('settingMapplsSecret').value = data.client_secret;
+    }
+  } catch (err) {
+    console.error('Failed to load settings:', err);
+  }
 }

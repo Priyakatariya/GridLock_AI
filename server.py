@@ -570,6 +570,15 @@ def api_mappls_predictive_flow():
     })
 
 
+@app.route("/api/mappls/keys")
+def api_mappls_keys():
+    client_id, client_secret = get_mappls_config()
+    return jsonify({
+        "client_id": client_id or "",
+        "client_secret": client_secret or ""
+    })
+
+
 @app.route("/api/mappls/save_keys", methods=["POST"])
 def api_mappls_save_keys():
     try:
