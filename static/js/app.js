@@ -1275,12 +1275,30 @@ function initMapplsConsole() {
   const payloadViewer = document.getElementById('consolePayloadViewer');
   const expandArrow = document.getElementById('expandArrow');
   const btnMinimize = document.getElementById('btnMinimizeConsole');
+  const consoleHeaderToggle = document.getElementById('consoleHeaderToggle');
 
   // Click to restore when minimized
   if (consoleConsole) {
     consoleConsole.addEventListener('click', () => {
       if (consoleConsole.classList.contains('minimized')) {
         consoleConsole.classList.remove('minimized');
+      }
+    });
+  }
+
+  // Toggle/Minimize on clicking the header bar
+  if (consoleHeaderToggle && consoleConsole) {
+    consoleHeaderToggle.addEventListener('click', (e) => {
+      // Don't minimize if clicking other buttons in the header (like expandArrow or btnMinimize)
+      if (e.target.id === 'expandArrow' || e.target.id === 'btnMinimizeConsole') {
+        return;
+      }
+      e.stopPropagation();
+      if (!consoleConsole.classList.contains('minimized')) {
+        consoleConsole.classList.add('minimized');
+        consoleConsole.classList.remove('expanded');
+        if (payloadViewer) payloadViewer.style.display = 'none';
+        if (expandArrow) expandArrow.textContent = '[+] EXPAND API';
       }
     });
   }
@@ -2343,6 +2361,9 @@ function anprLoop() {
   if (Math.random() < 0.018) {
     const vtype = VEHICLE_TYPES[Math.floor(Math.random() * VEHICLE_TYPES.length)];
     const laneYs = [14 + (h-14)*0.17, 14 + (h-14)*0.5, 14 + (h-14)*0.83];
+    const isViolation = Math.random() < 0.15;
+    const isCritical = Math.random() < 0.3; // 30% of violations are critical (Double Parking)
+
     anprCars.push({
       x: -50,
       y: laneYs[Math.floor(Math.random() * 3)],
@@ -2352,7 +2373,9 @@ function anprLoop() {
       color: `hsl(${Math.random()*360}, 40%, ${20 + Math.random()*20}%)`,
       scanned: false,
       confidence: Math.floor(88 + Math.random() * 12),
-      violation: Math.random() < 0.15
+      violation: isViolation,
+      violationType: isCritical ? 'Double Parking (Critical)' : 'No Parking Zone',
+      isCriticalViolation: isCritical
     });
   }
 
@@ -2379,7 +2402,14 @@ function anprLoop() {
 
     // ── Tracking bounding box ──
     if (car.x > 20 && car.x < w - 20) {
-      const bColor = car.scanned && car.violation ? '#ff1744' : (car.scanned ? '#00ff46' : '#00e5ff');
+      let bColor = '#00e5ff'; // Scanning cyan
+      if (car.scanned) {
+        if (car.violation) {
+          bColor = car.isCriticalViolation ? '#ff1744' : '#ffaa00'; // Red for critical, Orange for minor
+        } else {
+          bColor = '#00ff46'; // Green for scanned & clear
+        }
+      }
       anprCtx.strokeStyle = bColor;
       anprCtx.lineWidth = 1.5;
 
@@ -2396,9 +2426,14 @@ function anprLoop() {
       if (car.x > w/2 - 25 && !car.scanned) {
         car.scanned = true;
         if (car.violation) {
-          logAnpr(`🔴 VIOLATION: ${car.plate} [${car.type}] — Illegal Parking`, true);
-          showToast('ANPR Alert', `Violation Detected: ${car.plate} (${car.type})`, 'error');
-          sendTelegramAlert(`🚨 *ANPR Violation*\n*Plate:* \`${car.plate}\`\n*Type:* ${car.type}\n*Cam:* ${ANPR_CAM_ID} · ${ANPR_LOCATION}\n*Action:* E-Challan + Tow Dispatched`);
+          if (car.isCriticalViolation) {
+            logAnpr(`🔴 CRITICAL: ${car.plate} [${car.type}] — ${car.violationType}`, true);
+            showToast('ANPR Alert', `Critical Violation: ${car.plate} (${car.type})`, 'error');
+            sendTelegramAlert(`🚨 *ANPR Critical Violation*\n*Plate:* \`${car.plate}\`\n*Type:* ${car.type}\n*Violation:* ${car.violationType}\n*Cam:* ${ANPR_CAM_ID} · ${ANPR_LOCATION}\n*Action:* Tow Truck Dispatched automatically`);
+          } else {
+            // Minor violations are logged silently to the side panel
+            logAnpr(`⚠️ VIOLATION: ${car.plate} [${car.type}] — No Parking Zone`, true);
+          }
         } else {
           logAnpr(`✅ SCAN OK: ${car.plate} [${car.type}] — ${car.confidence}% conf`);
         }

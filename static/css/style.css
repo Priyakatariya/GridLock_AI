@@ -376,7 +376,8 @@ body {
 .app-layout {
   display: flex;
   margin-top: calc(var(--navbar-height) + var(--alert-height));
-  min-height: calc(100vh - var(--navbar-height) - var(--alert-height));
+  height: calc(100vh - var(--navbar-height) - var(--alert-height));
+  overflow: hidden;
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -635,6 +636,7 @@ body {
   padding: 20px 24px;
   overflow-y: auto;
   min-width: 0;
+  height: 100%;
 }
 
 /* ── Stat Cards ───────────────────────────────────────────────────────────── */
